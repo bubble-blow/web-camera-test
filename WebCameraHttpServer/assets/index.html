@@ -40,6 +40,40 @@
       msgEl.textContent = msg;
     }
 
+    function serializeRange(range) {
+      if (!range) {
+        return null;
+      }
+      return {
+        min: range.min,
+        max: range.max,
+        step: range.step
+      };
+    }
+
+    function renderCapabilities(capabilities) {
+      const data = {
+        redEyeReduction: capabilities.redEyeReduction,
+        imageWidth: serializeRange(capabilities.imageWidth),
+        imageHeight: serializeRange(capabilities.imageHeight),
+        zoom: serializeRange(capabilities.zoom),
+        exposureCompensation: serializeRange(capabilities.exposureCompensation),
+        exposureMode: capabilities.exposureMode,
+        colorTemperature: serializeRange(capabilities.colorTemperature),
+        iso: serializeRange(capabilities.iso),
+        brightness: serializeRange(capabilities.brightness),
+        contrast: serializeRange(capabilities.contrast),
+        saturation: serializeRange(capabilities.saturation),
+        sharpness: serializeRange(capabilities.sharpness),
+        focusDistance: serializeRange(capabilities.focusDistance),
+        focusMode: capabilities.focusMode,
+        whiteBalanceMode: capabilities.whiteBalanceMode,
+        fillLightMode: capabilities.fillLightMode,
+        torch: capabilities.torch
+      };
+      capsEl.textContent = JSON.stringify(data, null, 2);
+    }
+
     async function startCamera() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -58,7 +92,7 @@
         imageCapture = new ImageCapture(track);
 
         const capabilities = await imageCapture.getPhotoCapabilities();
-        capsEl.textContent = JSON.stringify(capabilities, null, 2);
+        renderCapabilities(capabilities);
 
         takePhotoBtn.disabled = false;
         showMessage('摄像头已启动。');
