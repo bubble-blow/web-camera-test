@@ -30,7 +30,6 @@ import org.apache.http.protocol.ResponseConnControl;
 import org.apache.http.protocol.ResponseContent;
 import org.apache.http.protocol.ResponseDate;
 import org.apache.http.protocol.ResponseServer;
-import org.apache.http.util.EntityUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -147,7 +146,7 @@ public class MainActivity extends Activity {
 
             if (request instanceof HttpEntityEnclosingRequest) {
                 HttpEntity entity = ((HttpEntityEnclosingRequest) request).getEntity();
-                EntityUtils.consume(entity);
+                consumeRequestEntity(entity);
             }
 
             String uri = request.getRequestLine().getUri();
@@ -166,6 +165,29 @@ public class MainActivity extends Activity {
             ByteArrayEntity okEntity = new ByteArrayEntity(body);
             okEntity.setContentType(resolveMimeType(assetPath) + "; charset=UTF-8");
             response.setEntity(okEntity);
+        }
+
+
+        private void consumeRequestEntity(HttpEntity entity) throws IOException {
+            if (entity == null) {
+                return;
+            }
+
+            InputStream content = null;
+            try {
+                content = entity.getContent();
+                if (content == null) {
+                    return;
+                }
+                byte[] buffer = new byte[1024];
+                while (content.read(buffer) != -1) {
+                    // Drain request body to keep connection state clean.
+                }
+            } finally {
+                if (content != null) {
+                    content.close();
+                }
+            }
         }
 
         private String normalizePath(String uri) {
