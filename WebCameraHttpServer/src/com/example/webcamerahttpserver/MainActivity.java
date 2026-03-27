@@ -13,15 +13,18 @@ import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.MethodNotSupportedException;
 import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.ContentType;
-import org.apache.http.impl.DefaultBHttpServerConnection;
-import org.apache.http.impl.DefaultBHttpServerConnectionFactory;
+import org.apache.http.impl.DefaultConnectionReuseStrategy;
+import org.apache.http.impl.DefaultHttpResponseFactory;
+import org.apache.http.impl.DefaultHttpServerConnection;
+import org.apache.http.params.BasicHttpParams;
+import org.apache.http.params.CoreConnectionPNames;
+import org.apache.http.params.CoreProtocolPNames;
+import org.apache.http.params.HttpParams;
 import org.apache.http.protocol.BasicHttpContext;
+import org.apache.http.protocol.BasicHttpProcessor;
 import org.apache.http.protocol.HttpContext;
-import org.apache.http.protocol.HttpProcessor;
-import org.apache.http.protocol.HttpProcessorBuilder;
 import org.apache.http.protocol.HttpRequestHandler;
-import org.apache.http.protocol.HttpRequestHandlerMapper;
+import org.apache.http.protocol.HttpRequestHandlerRegistry;
 import org.apache.http.protocol.HttpService;
 import org.apache.http.protocol.ResponseConnControl;
 import org.apache.http.protocol.ResponseContent;
@@ -41,13 +44,14 @@ public class MainActivity extends Activity {
 
     private Thread serverThread;
     private volatile boolean running;
+    private volatile ServerSocket serverSocket;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        final TextView statusText = (TextView) findViewById(R.id.statusText);
+        TextView statusText = (TextView) findViewById(R.id.statusText);
         statusText.setText("HTTP server running at http://127.0.0.1:" + PORT + "/");
 
         running = true;
@@ -63,6 +67,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         running = false;
+
+        if (serverSocket != null) {
+            try {
+                serverSocket.close();
+            } catch (IOException ignored) {
+            }
+        }
+
         if (serverThread != null) {
             serverThread.interrupt();
         }
@@ -70,29 +82,35 @@ public class MainActivity extends Activity {
     }
 
     private void startHttpServer() {
-        ServerSocket serverSocket = null;
+        HttpParams params = new BasicHttpParams();
+        params.setIntParameter(CoreConnectionPNames.SO_TIMEOUT, 5000)
+                .setIntParameter(CoreConnectionPNames.SOCKET_BUFFER_SIZE, 8 * 1024)
+                .setBooleanParameter(CoreConnectionPNames.STALE_CONNECTION_CHECK, false)
+                .setBooleanParameter(CoreConnectionPNames.TCP_NODELAY, true)
+                .setParameter(CoreProtocolPNames.ORIGIN_SERVER, "AndroidAssetServer/1.0");
+
+        BasicHttpProcessor processor = new BasicHttpProcessor();
+        processor.addInterceptor(new ResponseDate());
+        processor.addInterceptor(new ResponseServer());
+        processor.addInterceptor(new ResponseContent());
+        processor.addInterceptor(new ResponseConnControl());
+
+        HttpService service = new HttpService(
+                processor,
+                new DefaultConnectionReuseStrategy(),
+                new DefaultHttpResponseFactory());
+
+        HttpRequestHandlerRegistry registry = new HttpRequestHandlerRegistry();
+        registry.register("*", new AssetRequestHandler());
+        service.setHandlerResolver(registry);
+        service.setParams(params);
+
         try {
-            HttpProcessor processor = HttpProcessorBuilder.create()
-                    .add(new ResponseDate())
-                    .add(new ResponseServer("AndroidAssetServer/1.0"))
-                    .add(new ResponseContent())
-                    .add(new ResponseConnControl())
-                    .build();
-
-            HttpRequestHandlerMapper mapper = new HttpRequestHandlerMapper() {
-                @Override
-                public HttpRequestHandler lookup(HttpRequest request) {
-                    return new AssetRequestHandler();
-                }
-            };
-
-            HttpService service = new HttpService(processor, mapper);
-            DefaultBHttpServerConnectionFactory connectionFactory = DefaultBHttpServerConnectionFactory.INSTANCE;
-
             serverSocket = new ServerSocket(PORT);
             while (running) {
                 Socket socket = serverSocket.accept();
-                DefaultBHttpServerConnection conn = connectionFactory.createConnection(socket);
+                DefaultHttpServerConnection conn = new DefaultHttpServerConnection();
+                conn.bind(socket, params);
                 HttpContext context = new BasicHttpContext(null);
                 try {
                     while (running && conn.isOpen()) {
@@ -103,19 +121,18 @@ public class MainActivity extends Activity {
                 } catch (HttpException ignored) {
                     // Malformed request.
                 } finally {
-                    conn.shutdown();
-                    socket.close();
+                    try {
+                        conn.shutdown();
+                    } catch (IOException ignored) {
+                    }
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                    }
                 }
             }
         } catch (IOException ignored) {
             // Demo code: keep UI simple.
-        } finally {
-            if (serverSocket != null) {
-                try {
-                    serverSocket.close();
-                } catch (IOException ignored) {
-                }
-            }
         }
     }
 
@@ -139,18 +156,23 @@ public class MainActivity extends Activity {
 
             if (body == null) {
                 response.setStatusCode(HttpStatus.SC_NOT_FOUND);
-                response.setEntity(new ByteArrayEntity("404 Not Found".getBytes("UTF-8"), ContentType.TEXT_PLAIN));
+                ByteArrayEntity notFoundEntity = new ByteArrayEntity("404 Not Found".getBytes("UTF-8"));
+                notFoundEntity.setContentType("text/plain; charset=UTF-8");
+                response.setEntity(notFoundEntity);
                 return;
             }
 
             response.setStatusCode(HttpStatus.SC_OK);
-            response.setEntity(new ByteArrayEntity(body, ContentType.create(resolveMimeType(assetPath), "UTF-8")));
+            ByteArrayEntity okEntity = new ByteArrayEntity(body);
+            okEntity.setContentType(resolveMimeType(assetPath) + "; charset=UTF-8");
+            response.setEntity(okEntity);
         }
 
         private String normalizePath(String uri) {
             if (uri == null || "/".equals(uri)) {
                 return "index.html";
             }
+
             String path = uri;
             int queryIndex = path.indexOf('?');
             if (queryIndex >= 0) {
