@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Web Camera HTTP Server</string>
+    <string name="server_starting">HTTP server starting...</string>
+
+</resources>

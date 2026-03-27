@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ImageCapture API 示例</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; line-height: 1.4; }
+    video { width: 100%; max-width: 480px; background: #000; }
+    button { margin: 0.5rem 0.5rem 0.5rem 0; }
+    pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>ImageCapture API 使用示例</h1>
+  <p>此页面会请求摄像头权限，并展示 getPhotoCapabilities() 返回的设备拍照参数。</p>
+
+  <video id="preview" autoplay playsinline></video><br>
+  <button id="startBtn">启动摄像头</button>
+  <button id="takePhotoBtn" disabled>拍照</button>
+  <div id="msg"></div>
+
+  <h2>设备拍照参数</h2>
+  <pre id="caps">等待启动...</pre>
+
+  <h2>拍照结果</h2>
+  <img id="result" alt="拍照结果" style="max-width:100%; display:block;" />
+
+  <script>
+    const msgEl = document.getElementById('msg');
+    const capsEl = document.getElementById('caps');
+    const preview = document.getElementById('preview');
+    const result = document.getElementById('result');
+    const startBtn = document.getElementById('startBtn');
+    const takePhotoBtn = document.getElementById('takePhotoBtn');
+
+    let imageCapture = null;
+
+    function showMessage(msg) {
+      msgEl.textContent = msg;
+    }
+
+    async function startCamera() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          showMessage('当前浏览器不支持 getUserMedia。');
+          return;
+        }
+        if (!window.ImageCapture) {
+          showMessage('当前浏览器不支持 ImageCapture API。');
+          return;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        preview.srcObject = stream;
+
+        const [track] = stream.getVideoTracks();
+        imageCapture = new ImageCapture(track);
+
+        const capabilities = await imageCapture.getPhotoCapabilities();
+        capsEl.textContent = JSON.stringify(capabilities, null, 2);
+
+        takePhotoBtn.disabled = false;
+        showMessage('摄像头已启动。');
+      } catch (err) {
+        showMessage('启动失败：' + err.message);
+        capsEl.textContent = String(err);
+      }
+    }
+
+    async function takePhoto() {
+      if (!imageCapture) {
+        showMessage('请先启动摄像头。');
+        return;
+      }
+      try {
+        const blob = await imageCapture.takePhoto();
+        result.src = URL.createObjectURL(blob);
+        showMessage('拍照成功。');
+      } catch (err) {
+        showMessage('拍照失败：' + err.message);
+      }
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    takePhotoBtn.addEventListener('click', takePhoto);
+  </script>
+</body>
+</html>
