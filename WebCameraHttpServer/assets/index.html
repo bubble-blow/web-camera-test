@@ -7,13 +7,20 @@
   <style>
     body { font-family: sans-serif; padding: 1rem; line-height: 1.4; }
     video { width: 100%; max-width: 480px; background: #000; }
-    button { margin: 0.5rem 0.5rem 0.5rem 0; }
+    button, select { margin: 0.5rem 0.5rem 0.5rem 0; }
     pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+    label { display: inline-block; margin-right: 0.5rem; }
   </style>
 </head>
 <body>
   <h1>ImageCapture API 使用示例</h1>
   <p>此页面会请求摄像头权限，并展示 getPhotoCapabilities() 返回的设备拍照参数。</p>
+
+  <div>
+    <label for="cameraSelect">摄像头ID：</label>
+    <select id="cameraSelect"></select>
+    <button id="refreshBtn">刷新摄像头列表</button>
+  </div>
 
   <video id="preview" autoplay playsinline></video><br>
   <button id="startBtn">启动摄像头</button>
@@ -33,11 +40,47 @@
     const result = document.getElementById('result');
     const startBtn = document.getElementById('startBtn');
     const takePhotoBtn = document.getElementById('takePhotoBtn');
+    const cameraSelect = document.getElementById('cameraSelect');
+    const refreshBtn = document.getElementById('refreshBtn');
 
     let imageCapture = null;
+    let activeStream = null;
 
     function showMessage(msg) {
       msgEl.textContent = msg;
+    }
+
+    function stopActiveStream() {
+      if (!activeStream) {
+        return;
+      }
+      activeStream.getTracks().forEach(track => track.stop());
+      activeStream = null;
+    }
+
+    async function loadCameraList() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        showMessage('当前浏览器不支持 enumerateDevices。');
+        return;
+      }
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+
+      cameraSelect.innerHTML = '';
+      videoInputs.forEach((d, i) => {
+        const option = document.createElement('option');
+        option.value = d.deviceId;
+        option.textContent = d.label || ('摄像头 #' + (i + 1));
+        cameraSelect.appendChild(option);
+      });
+
+      if (videoInputs.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = '未发现摄像头';
+        cameraSelect.appendChild(option);
+      }
     }
 
     function serializeRange(range) {
@@ -85,17 +128,28 @@
           return;
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stopActiveStream();
+
+        const selectedDeviceId = cameraSelect.value;
+        const constraints = selectedDeviceId
+          ? { video: { deviceId: { exact: selectedDeviceId } } }
+          : { video: { facingMode: 'environment' } };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        activeStream = stream;
         preview.srcObject = stream;
 
-        const [track] = stream.getVideoTracks();
-        imageCapture = new ImageCapture(track);
+        const tracks = stream.getVideoTracks();
+        if (tracks.length === 0) {
+          throw new Error('没有可用的视频轨道');
+        }
 
+        imageCapture = new ImageCapture(tracks[0]);
         const capabilities = await imageCapture.getPhotoCapabilities();
         renderCapabilities(capabilities);
 
         takePhotoBtn.disabled = false;
-        showMessage('摄像头已启动。');
+        showMessage('摄像头已启动，deviceId=' + (selectedDeviceId || '默认'));
       } catch (err) {
         showMessage('启动失败：' + err.message);
         capsEl.textContent = String(err);
@@ -116,8 +170,19 @@
       }
     }
 
+    refreshBtn.addEventListener('click', async () => {
+      try {
+        await loadCameraList();
+        showMessage('摄像头列表已刷新。');
+      } catch (err) {
+        showMessage('刷新失败：' + err.message);
+      }
+    });
+
     startBtn.addEventListener('click', startCamera);
     takePhotoBtn.addEventListener('click', takePhoto);
+
+    loadCameraList().catch(err => showMessage('初始化摄像头列表失败：' + err.message));
   </script>
 </body>
 </html>
